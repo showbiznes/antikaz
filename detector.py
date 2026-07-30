@@ -33,10 +33,9 @@ try:
     from torchvision import models, transforms
     TORCH_AVAILABLE = True
 except ImportError:
-    logger.warning(
-        "torch/torchvision не установлены! "
-        "Детекция через нейросеть недоступна. "
-        "Работает только OCR + CLIP (если установлен)."
+    logger.info(
+        "torch/torchvision не установлены — это ожидаемо на данном хостинге. "
+        "Детекция работает через OCR + анализ цвета (без нейросети)."
     )
     TORCH_AVAILABLE = False
 
@@ -220,12 +219,18 @@ class ImageDetector:
 
     def _load_model(self) -> None:
         """Загружает EfficientNet из файла."""
+        if not TORCH_AVAILABLE:
+            # На этом хостинге torch намеренно не устанавливается —
+            # детекция работает через OCR + анализ цвета.
+            self.model = None
+            return
+
         model_path = Path(config.MODEL_PATH)
         if not model_path.exists():
-            logger.warning(
+            logger.info(
                 "EfficientNet не найден: %s. "
-                "Запустите train.py для обучения. "
-                "Пока используется только CLIP + OCR.",
+                "Запустите train.py для обучения, если понадобится нейросеть. "
+                "Пока используется OCR + анализ цвета.",
                 model_path,
             )
             self.model = None
@@ -253,9 +258,9 @@ class ImageDetector:
             self._encode_clip_prompts()
             logger.info("CLIP ViT-B/32 загружен")
         except ImportError:
-            logger.warning(
-                "CLIP не установлен. Установите: pip install openai-clip. "
-                "Zero-shot детекция недоступна."
+            logger.info(
+                "CLIP не установлен — это ожидаемо на данном хостинге. "
+                "Работает OCR + анализ цвета."
             )
             self.clip_model = None
         except Exception as e:
