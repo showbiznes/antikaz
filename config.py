@@ -5,6 +5,14 @@
 import os
 from pathlib import Path
 
+# Загружаем переменные из .env файла (если он есть)
+# На bothost.ru переменные задаются через панель, .env не нужен
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # python-dotenv не установлен — используем переменные окружения напрямую
+
 # ---------------------------------------------------------------------------
 # Токен Discord-бота (обязательно!)
 # Получить: https://discord.com/developers/applications → Bot → Token
