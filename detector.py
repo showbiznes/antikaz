@@ -20,14 +20,27 @@ import re
 from pathlib import Path
 from typing import Optional
 
-import torch
-import torch.nn as nn
 from PIL import Image
-from torchvision import models, transforms
 
 import config
 
 logger = logging.getLogger("antispam.detector")
+
+# Пробуем загрузить torch — если не установлен, бот работает через OCR
+try:
+    import torch
+    import torch.nn as nn
+    from torchvision import models, transforms
+    TORCH_AVAILABLE = True
+except ImportError:
+    logger.warning(
+        "torch/torchvision не установлены! "
+        "Детекция через нейросеть недоступна. "
+        "Работает только OCR + CLIP (если установлен)."
+    )
+    TORCH_AVAILABLE = False
+
+
 
 # ---------------------------------------------------------------------------
 # CLIP — промпты для zero-shot классификации
@@ -121,16 +134,13 @@ URL_PATTERN = re.compile(
 )
 
 
-def build_efficientnet(num_classes: int = 2) -> nn.Module:
+def build_efficientnet(num_classes: int = 2):
     """
     Создаёт EfficientNet-B0 с кастомным классификатором.
-
-    Args:
-        num_classes: 2 (normal / spam).
-
-    Returns:
-        Модель PyTorch.
+    Возвращает None если torch не установлен.
     """
+    if not TORCH_AVAILABLE:
+        return None
     model = models.efficientnet_b0(weights=None)
     in_features = model.classifier[1].in_features
     model.classifier = nn.Sequential(
@@ -151,31 +161,36 @@ class ImageDetector:
     """
 
     def __init__(self) -> None:
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # Устройство (CPU или GPU)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu") \
+            if TORCH_AVAILABLE else None
 
         # EfficientNet (дообученная модель)
-        self.model: Optional[nn.Module] = None
+        self.model = None
 
         # CLIP модель (zero-shot)
         self.clip_model = None
         self.clip_preprocess = None
-        self.clip_text_features: Optional[torch.Tensor] = None
+        self.clip_text_features = None
 
         # Трансформации для EfficientNet
-        self.transform = transforms.Compose([
-            transforms.Resize(config.TRAIN_IMAGE_SIZE),
-            transforms.ToTensor(),
-            transforms.Normalize(
-                mean=[0.485, 0.456, 0.406],
-                std=[0.229, 0.224, 0.225],
-            ),
-        ])
+        if TORCH_AVAILABLE:
+            self.transform = transforms.Compose([
+                transforms.Resize(config.TRAIN_IMAGE_SIZE),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406],
+                    std=[0.229, 0.224, 0.225],
+                ),
+            ])
+        else:
+            self.transform = None
 
         self._load_model()
         self._load_clip()
         logger.info(
-            "ImageDetector запущен (device=%s, CLIP=%s, EfficientNet=%s)",
-            self.device,
+            "ImageDetector запущен (torch=%s, CLIP=%s, EfficientNet=%s)",
+            "✓" if TORCH_AVAILABLE else "✗ (не установлен)",
             "✓" if self.clip_model else "✗",
             "✓" if self.model else "✗ (запустите train.py)",
         )
@@ -443,3 +458,4 @@ class ImageDetector:
             logger.debug("Ошибка OCR: %s", e)
 
         return False
+
