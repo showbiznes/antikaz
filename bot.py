@@ -16,7 +16,7 @@ from discord.ext import commands
 
 import config
 import database as db
-from detector import ImageDetector
+from detector import ImageDetector, TORCH_AVAILABLE
 
 # ---------------------------------------------------------------------------
 # Настройка логирования
@@ -418,6 +418,17 @@ async def cmd_reloadmodel(ctx: commands.Context) -> None:
             description=f"Путь: `{config.MODEL_PATH}`",
             color=discord.Color.green(),
         )
+    elif not TORCH_AVAILABLE:
+        # На этом хостинге torch/CLIP намеренно не установлены —
+        # это не ошибка, детекция всё равно работает через OCR + цвет.
+        embed = discord.Embed(
+            title="ℹ️ Нейросетевые модели не используются",
+            description=(
+                "torch/CLIP не установлены на этом хостинге — детекция "
+                "работает через OCR + анализ цвета, перезагружать нечего."
+            ),
+            color=discord.Color.blue(),
+        )
     else:
         embed = discord.Embed(
             title="❌ Ошибка загрузки модели",
@@ -546,5 +557,3 @@ if __name__ == "__main__":
 
     logger.info("Запуск бота...")
     bot.run(config.TOKEN, log_handler=None)
-
-
