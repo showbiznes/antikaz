@@ -361,6 +361,49 @@ async def cmd_clearwarnings(ctx: commands.Context, member: discord.Member) -> No
     logger.info("%s сбросил предупреждения для %s", ctx.author, member)
 
 
+@bot.command(name="testdetect")
+@is_admin()
+async def cmd_testdetect(ctx: commands.Context) -> None:
+    """
+    !testdetect — тестирует детекцию на прикреплённом изображении.
+    Прикрепи картинку к сообщению с командой.
+    """
+    if not ctx.message.attachments:
+        await ctx.send("❌ Прикрепи изображение к сообщению с командой `!testdetect`")
+        return
+
+    attachment = ctx.message.attachments[0]
+    if not is_image(attachment.filename):
+        await ctx.send("❌ Файл не является изображением.")
+        return
+
+    msg = await ctx.send("⏳ Анализирую изображение...")
+    image_data = await download_attachment(attachment)
+    if not image_data:
+        await msg.edit(content="❌ Не удалось скачать изображение.")
+        return
+
+    is_spam, confidence, method = detector.predict(image_data)
+
+    color = discord.Color.red() if is_spam else discord.Color.green()
+    verdict = "🚫 СПАМ" if is_spam else "✅ Чисто"
+
+    embed = discord.Embed(
+        title=f"🔍 Результат детекции: {verdict}",
+        color=color,
+    )
+    embed.add_field(name="Файл", value=attachment.filename, inline=False)
+    embed.add_field(name="Уверенность", value=f"{confidence:.1%}", inline=True)
+    embed.add_field(name="Метод", value=method or "—", inline=True)
+    embed.add_field(
+        name="Порог блокировки",
+        value=f"{config.CONFIDENCE_THRESHOLD:.0%}",
+        inline=True,
+    )
+    embed.set_footer(text=f"Запросил: {ctx.author}")
+    await msg.edit(content=None, embed=embed)
+
+
 @bot.command(name="reloadmodel")
 @is_admin()
 async def cmd_reloadmodel(ctx: commands.Context) -> None:
@@ -503,3 +546,5 @@ if __name__ == "__main__":
 
     logger.info("Запуск бота...")
     bot.run(config.TOKEN, log_handler=None)
+
+
