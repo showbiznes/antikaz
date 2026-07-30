@@ -17,6 +17,7 @@
 import io
 import logging
 import re
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -38,6 +39,24 @@ except ImportError:
         "Детекция работает через OCR + анализ цвета (без нейросети)."
     )
     TORCH_AVAILABLE = False
+
+
+# ---------------------------------------------------------------------------
+# Проверка наличия системного бинарника tesseract (нужен для OCR)
+# pytesseract — это только Python-обёртка, ей нужен сам tesseract-ocr,
+# который на некоторых хостингах (например, если не выполняется apt-get
+# из Dockerfile) может отсутствовать. Проверяем явно и громко.
+# ---------------------------------------------------------------------------
+TESSERACT_AVAILABLE = shutil.which("tesseract") is not None
+if TESSERACT_AVAILABLE:
+    logger.info("Системный tesseract найден: %s", shutil.which("tesseract"))
+else:
+    logger.warning(
+        "Системный бинарник tesseract НЕ найден в PATH! "
+        "pytesseract установлен, но OCR-детекция работать не будет "
+        "(нужен пакет tesseract-ocr на уровне ОС, не pip). "
+        "Работает только анализ цвета."
+    )
 
 
 
@@ -557,8 +576,11 @@ class ImageDetector:
                 return True, "url"
 
         except ImportError:
-            logger.debug("pytesseract не установлен, OCR пропущен.")
+            logger.warning("pytesseract не установлен, OCR пропущен.")
         except Exception as e:
-            logger.debug("Ошибка OCR: %s", e)
+            # Раньше логировалось на уровне debug и было не видно в обычных
+            # логах — из-за этого сбой OCR (например, отсутствие системного
+            # tesseract) оставался незаметным. Теперь логируем как error.
+            logger.error("Ошибка OCR (%s): %s", type(e).__name__, e)
 
         return False, ""
