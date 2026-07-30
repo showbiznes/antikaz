@@ -1,7 +1,11 @@
 # =============================================================================
 # requirements.txt — для bothost.ru
-# ВАЖНО: torch устанавливается через Dockerfile, НЕ через этот файл
+# ВАЖНО: bothost.ru НЕ использует кастомный Dockerfile для установки пакетов,
+# сборка идёт только по этому файлу. Поэтому torch/torchvision/CLIP указаны
+# здесь напрямую (--extra-index-url даёт CPU-сборку torch, без CUDA — легче).
 # =============================================================================
+
+--extra-index-url https://download.pytorch.org/whl/cpu
 
 # Discord
 discord.py==2.3.2
@@ -21,3 +25,10 @@ pytesseract==0.3.10
 
 # Переменные окружения
 python-dotenv==1.0.1
+
+# PyTorch (CPU) — обязательно для EfficientNet
+torch==2.3.1
+torchvision==0.18.1
+
+# CLIP (zero-shot детекция — работает без обучения)
+openai-clip==1.0.1
