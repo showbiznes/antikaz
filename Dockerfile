@@ -1,10 +1,11 @@
 # =============================================================================
-# Dockerfile — для деплоя на bothost.ru
+# Dockerfile — для bothost.ru
+# torch устанавливается ЗДЕСЬ, до запуска бота
 # =============================================================================
 
 FROM python:3.11-slim
 
-LABEL description="Discord Anti-Spam Bot with CLIP + EfficientNet"
+LABEL description="Discord Anti-Spam Bot"
 
 # Системные зависимости
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -16,26 +17,33 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# 1. Сначала python-dotenv и базовые пакеты
-RUN pip install --no-cache-dir python-dotenv==1.0.1
+# ШАГ 1: Базовые пакеты (быстро)
+RUN pip install --no-cache-dir \
+    python-dotenv==1.0.1 \
+    Pillow==10.3.0 \
+    aiohttp==3.9.5 \
+    "discord.py==2.3.2" \
+    pytesseract==0.3.10 \
+    ftfy==6.1.3 \
+    "regex==2024.4.28"
 
-# 2. PyTorch CPU (отдельно, со своим index-url)
+# ШАГ 2: PyTorch CPU (медленно, ~700 МБ — отдельный шаг для кэша)
 RUN pip install --no-cache-dir \
     torch==2.3.1 \
     torchvision==0.18.1 \
     --index-url https://download.pytorch.org/whl/cpu
 
-# 3. Остальные зависимости
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# ШАГ 3: CLIP (после torch)
+RUN pip install --no-cache-dir openai-clip==1.0.1 || \
+    echo "CLIP не установлен — используется OCR"
 
-# 4. Копируем проект
+# ШАГ 4: Копируем проект
 COPY . .
 
-# Создаём нужные папки
+# Создаём папки
 RUN mkdir -p logs/review model dataset/spam dataset/normal
 
-# Переменные окружения (переопределяются в панели bothost.ru)
+# Переменные окружения
 ENV DISCORD_TOKEN=""
 ENV GUILD_ID="0"
 ENV LOG_CHANNEL_ID="0"
