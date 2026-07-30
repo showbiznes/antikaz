@@ -1,11 +1,11 @@
 # =============================================================================
 # requirements.txt — для bothost.ru
-# ВАЖНО: bothost.ru НЕ использует кастомный Dockerfile для установки пакетов,
-# сборка идёт только по этому файлу. Поэтому torch/torchvision/CLIP указаны
-# здесь напрямую (--extra-index-url даёт CPU-сборку torch, без CUDA — легче).
+# ВАЖНО: сборка на bothost.ru ставит пакеты ПОСТРОЧНО (pip install "$line" для
+# каждой строки отдельно), поэтому флаги вроде --extra-index-url НЕ работают —
+# каждая строка должна быть валидным одиночным package-spec без пробелов.
+# torch здесь ставится с обычного PyPI (без --index-url на CPU-wheel), это
+# больше по размеру, но работает без ошибок на CPU-хостинге.
 # =============================================================================
-
---extra-index-url https://download.pytorch.org/whl/cpu
 
 # Discord
 discord.py==2.3.2
@@ -26,7 +26,7 @@ pytesseract==0.3.10
 # Переменные окружения
 python-dotenv==1.0.1
 
-# PyTorch (CPU) — обязательно для EfficientNet
+# PyTorch — обязательно для EfficientNet (обычная сборка с PyPI, без --index-url)
 torch==2.3.1
 torchvision==0.18.1
 
