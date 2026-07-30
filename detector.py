@@ -133,6 +133,19 @@ URL_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# ---------------------------------------------------------------------------
+# Цветовые признаки казино (анализ без torch)
+# ---------------------------------------------------------------------------
+# Тёмно-синий интерфейс (Rasowin, Mellgams и подобные)
+# HSV: оттенок Hue=200-260, высокая насыщенность, низкая яркость
+CASSINO_DARK_BLUE = {
+    "hue_min": 190,    # синий/фиолетовый цвет
+    "hue_max": 275,
+    "sat_min": 40,     # должна быть насыщенной (>серого)
+    "val_max": 120,    # тёмная (не светлая)
+    "min_ratio": 0.35, # порог: 35% пикселей должны быть тёмно-синими
+}
+
 
 def build_efficientnet(num_classes: int = 2):
     """
@@ -289,20 +302,28 @@ class ImageDetector:
         """
         results = []
 
-        # --- Метод 1: CLIP zero-shot ---
+        # --- Метод 1: Анализ цвета (без torch, работает всегда) ---
+        color_spam, color_conf = self._predict_color(image_data)
+        if color_spam:
+            results.append(("color", True, color_conf))
+        elif color_conf > 0.3:
+            # Подозрительный — записываем но не блокируем
+            results.append(("color_weak", False, color_conf))
+
+        # --- Метод 2: CLIP zero-shot ---
         clip_spam, clip_conf = self._predict_clip(image_data)
         if self.clip_model is not None:
             results.append(("clip", clip_spam, clip_conf))
 
-        # --- Метод 2: EfficientNet ---
+        # --- Метод 3: EfficientNet ---
         if self.model is not None:
             eff_spam, eff_conf = self._predict_efficientnet(image_data)
             results.append(("efficientnet", eff_spam, eff_conf))
 
-        # --- Метод 3: OCR ---
-        ocr_spam = self._predict_ocr(image_data)
+        # --- Метод 4: OCR ---
+        ocr_spam, ocr_keyword = self._predict_ocr(image_data)
         if ocr_spam:
-            results.append(("ocr", True, 0.85))
+            results.append(("ocr", True, 0.88))
 
         # --- Нет доступных методов ---
         if not results:
@@ -425,37 +446,109 @@ class ImageDetector:
             return False, 0.0
 
     # -----------------------------------------------------------------------
-    # Метод 3: OCR
+    # Метод 1: Анализ цвета (без torch)
     # -----------------------------------------------------------------------
 
-    def _predict_ocr(self, image_data: bytes) -> bool:
+    def _predict_color(self, image_data: bytes) -> tuple[bool, float]:
+        """
+        Определяет спам по цветовому составу изображения.
+        Работает БЕЗ torch/CLIP, всегда доступен.
+
+        Детектирует:
+        - Тёмно-синий интерфейс казино (Rasowin, Mellgams) — >35% тёмно-синих пикселей
+        - Сине-зелёные уведомления о выплате (зелёный чекмарк + синий фон)
+
+        Returns:
+            (is_spam, confidence): уверенность [0.0, 1.0]
+        """
+        try:
+            import colorsys
+            image = Image.open(io.BytesIO(image_data)).convert("RGB")
+
+            # Уменьшаем для скорости (100x100 достаточно)
+            thumb = image.resize((100, 100))
+            pixels = list(thumb.getdata())
+            total = len(pixels)
+
+            dark_blue_count = 0
+            green_count = 0
+
+            for r, g, b in pixels:
+                h, s, v = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
+                hue_deg = h * 360
+                sat_pct = s * 100
+                val = v * 255
+
+                # Тёмно-синий/фиолетовый (основной признак казино-сайтов)
+                if (
+                    CASSINO_DARK_BLUE["hue_min"] <= hue_deg <= CASSINO_DARK_BLUE["hue_max"]
+                    and sat_pct >= CASSINO_DARK_BLUE["sat_min"]
+                    and val <= CASSINO_DARK_BLUE["val_max"]
+                ):
+                    dark_blue_count += 1
+
+                # Ярко-зелёный (кнопки казино: «Пополнить», «Claim», «Activate»)
+                if (
+                    80 <= hue_deg <= 150
+                    and sat_pct >= 50
+                    and val >= 150
+                ):
+                    green_count += 1
+
+            dark_ratio = dark_blue_count / total
+            green_ratio = green_count / total
+
+            logger.debug(
+                "Цвет: dark_blue=%.2f%%, green=%.2f%%",
+                dark_ratio * 100, green_ratio * 100,
+            )
+
+            # Казино-сайт: много тёмно-синего + есть зелёный
+            if dark_ratio >= 0.35 and green_ratio >= 0.02:
+                confidence = min(dark_ratio * 1.5, 0.90)
+                return True, confidence
+
+            # Преимущественно тёмно-синий (Withdrawal Success сцена)
+            if dark_ratio >= 0.45:
+                confidence = min(dark_ratio * 1.3, 0.85)
+                return True, confidence
+
+            # Подозрительное
+            return False, dark_ratio
+
+        except Exception as e:
+            logger.debug("Ошибка анализа цвета: %s", e)
+            return False, 0.0
+
+    # -----------------------------------------------------------------------
+    # Метод 4: OCR
+    # -----------------------------------------------------------------------
+
+    def _predict_ocr(self, image_data: bytes) -> tuple[bool, str]:
         """
         Ищет ключевые слова казино/гемблинга в тексте на изображении.
 
-        Особенно эффективно для:
-        - Скриншотов сайтов с текстом (Rasowin, Bonuses, Slots)
-        - Фейковых новостей (РИА Новости казино)
-        - Скриншотов "Withdrawal Success"
+        Returns:
+            (is_spam, found_keyword)
         """
         try:
             import pytesseract
             image = Image.open(io.BytesIO(image_data)).convert("RGB")
-            # rus+eng для поддержки русских и английских текстов
             text = pytesseract.image_to_string(image, lang="rus+eng").lower()
 
             for keyword in SPAM_KEYWORDS:
                 if keyword.lower() in text:
                     logger.debug("OCR нашёл ключевое слово: %r", keyword)
-                    return True
+                    return True, keyword
 
             if URL_PATTERN.search(text):
                 logger.debug("OCR нашёл URL в тексте изображения")
-                return True
+                return True, "url"
 
         except ImportError:
             logger.debug("pytesseract не установлен, OCR пропущен.")
         except Exception as e:
             logger.debug("Ошибка OCR: %s", e)
 
-        return False
+        return False, ""
 
