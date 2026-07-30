@@ -156,9 +156,15 @@ def build_efficientnet(num_classes: int = 2):
         return None
     model = models.efficientnet_b0(weights=None)
     in_features = model.classifier[1].in_features
+    # ВАЖНО: структура должна точно совпадать с build_model() в train.py,
+    # иначе load_state_dict() упадёт с ошибкой size mismatch / unexpected keys
+    # и модель тихо не загрузится (self.model останется None).
     model.classifier = nn.Sequential(
-        nn.Dropout(p=0.3, inplace=True),
-        nn.Linear(in_features, num_classes),
+        nn.Dropout(p=0.4, inplace=True),
+        nn.Linear(in_features, 256),
+        nn.ReLU(),
+        nn.Dropout(p=0.2),
+        nn.Linear(256, num_classes),
     )
     return model
 
@@ -551,4 +557,3 @@ class ImageDetector:
             logger.debug("Ошибка OCR: %s", e)
 
         return False, ""
-
